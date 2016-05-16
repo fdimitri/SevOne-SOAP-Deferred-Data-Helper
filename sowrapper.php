@@ -1,51 +1,39 @@
 <?php
 /* Sample usage:
-$soTest = new soDeferredDeviceWrapper("sevone.server", "/soap3/api.wsdl", "username", "password", 0, 0);
+$soTest = new soDeferredDeviceWrapper("pm1.srv.vm.frankd.lab", "/soap3/api.wsdl", "username", "password", 0, 0);
 
 if (!$soTest->soInit()) {
 	echo "There was an error initializing the SevOne wrapper.\n";
 	exit;
 }
 
-$soTest->setDeviceName("someaccessswitch.my.net");
+$soTest->setDeviceName("swr1.dsfr.frankd.lab");
 $soTest->setScriptName("SO-TEST");
-/* Do your data collection here -- here's some dummy data as an example */
 $indicatorX = array("name" => "Indicator Name", "type" => 'GAUGE', "unit" => 'number', "value" => rand(10,100), "internal" => 0);
 $indicatorY = array("name" => "Indicator Name", "type" => 'GAUGE', "unit" => 'number', "value" => rand(10,100), "internal" => 0);
 $indicatorZ = array("name" => "Indicator Name", "type" => 'GAUGE', "unit" => 'number', "value" => rand(10,100), "internal" => 0);
-
-/* Attach our data to Objects in the SevOne hierarchy */
 $soTest->attachIndicatorToObject("Object Name", "Object Description", "ObjectType Name", $indicatorX);
 $soTest->attachIndicatorToObject("Object Name", "Object Description", "ObjectType Name", $indicatorY);
 $soTest->attachIndicatorToObject("Object Name", "Object Description", "ObjectType Name", $indicatorZ);
 
-
-/* Create an array of indicators */
 $indicators = array(
 	array('name' => 'Ind1', 'type' => 'GAUGE', 'unit' => 'number', 'value' => rand(10,100)),
 	array('name' => 'Ind2', 'type' => 'GAUGE', 'unit' => 'number', 'value' => rand(10,100)),
 	array('name' => 'Ind3', 'type' => 'GAUGE', 'unit' => 'number', 'value' => rand(10,100)),
 	array('name' => 'Ind4', 'type' => 'GAUGE', 'unit' => 'number', 'value' => rand(10,100)),
 	array('name' => 'Ind5', 'type' => 'GAUGE', 'unit' => 'number', 'value' => rand(10,100)),
-	);
-
-/* And attach the entire array to an object! */
+	),
 $soTest->attachIndicatorsToObject("Object2", "This is a second object", "Etherwebz", $indicators);	
 
 $soTest->preVerify();
 $soTest->pushData();
 
-exit;
-
-/* End Sample */
-
-
-/*
 05/14/14 - 3.0.1:
-						* Basic functionality/caching
+						* Basic functionality/caching						
 
 05/20/14 - 3.0.2 
-						* Removed a bunch of incorrect print_r()s and changed them to logMsg(print_r(var, TRUE))
+						* Removed a bunch of incorrect print_r()s for dumping and changed them to logMsg(print_r($var, TRUE)),
+						  so we don't accidentally dump data to stdout
 
 ??/??/?? - 3.0.3 
 						* Minor bugfixes apparently (no copies/repo entries exist)
@@ -92,19 +80,43 @@ exit;
 						* Juggled some connection code around
 
 08/27/14 - 3.0.11
-						* Added isValidIndicator(), removed more hacky tests
-						* There are still some retry counters and static assignments randomly littered through, this should be cleaned up at some ponit
-						* Fixed peer mode finally, pm3/pm4 pairs now work -- this part was broken before (would connect to peer, but tried pm7.srv/-1.srv
-							bad parens
-						* logMsg() checks logLevel bitmask before debug_backtrace(), not really necessary from a performance perspective but it is more
-							correct
-						* Incorrectly match pm(\d) instead of pm(\d+) fixed for peer mode
----
+	* Added isValidIndicator(), removed more hacky tests
+	* There are still some retry counters and static assignments randomly littered through, this should be cleaned up at some ponit
+	* Fixed peer mode finally, pm3/pm4 pairs now work -- this part was broken before (would connect to peer, but tried pm7.srv/-1.srv
+		bad parens
+	* logMsg() checks logLevel bitmask before debug_backtrace(), not really necessary from a performance perspective but it is more
+		correct
+	* Incorrectly match pm(\d) instead of pm(\d+) fixed for peer mode
 
-Atleast up to 3.0.14 exists with some fixes/improvements, where it goes.. nobody knows
+08/29/14 - 3.0.12
+	* Minor fix to match multiples in server name (ie pm|vpas) and then store that into a variable for peer re-writes
+
+09/10/14 - 3.0.13
+	* Added getVersion(), moved soWrapperVersion inside of class
+	* Added setServerDomain() -- ie we might use '.srv.mynetwork.lab'
+	* Added getCompatInfo(), which we can use later to provide compat info between the current version and the version supplied
+	  -- so far I think I've managed to not break the external interface, only making additions with internal changes
+
+09/15/14 - 3.0.14
+	* Changed the functionality of getInternalData($devid) slightly, defaults to $devid = NULL.. if it's NULL use the current one
+		 However if $devid is FALSE, return ALL objects
+	* Data export function (write to file)
+	* Data import function (read from file)
+	* Modified pushData() to accept a device name (pushData($devname)) -- will 
+							To do:
+							* (NYI) Should connect to new server if we exceed maxExceptions with some kind of server unreachable message from SOAP --
+								we haven't accounted for this condition but it could theoretically occur
+							* (NYI) Actually check the exception reason ie Exception::getMessage() so we can choose some behavior based on it
+								 (mostly a retry, lots of times SevOne will say something doesn't exist for no particular reason and then a subsequent
+								 call will work -- but usually we're dealing with connection timeouts)
+							* (NYI) Added setPeerServer() if we already have this externally to save a total of 2 API calls per device 
+							  (yay! out of thousands! -- it does stop us from requiring a connection to the primary server though)
+							* (NYI) Save peer list per-device so we can connect on pushData() if we're doing multiple devices 
+								(more device agnosticism optimization)
+							
+
 */
 
-$soWrapperVersion = array('major' => 3, 'minor' => 0, 'revision' => 11, 'patch' => array(NULL), 'epoch' => 1409137627);
 
 define("SODW_ALL",		 0xFFFF);
 define("SODW_CACHE",	 0x0001);
@@ -137,6 +149,7 @@ define("SO_FAILED_GETOBJECTTYPE", SO_FAILED | SO_GET | SO_OBJECTTYPE);
 define("SO_NOEXIST_OT", SO_NOEXIST | SO_OBJECTTYPE);
 
 class soDeferredDeviceWrapper {
+	protected $soWrapperVersion = array('major' => 3, 'minor' => 0, 'revision' => 14, 'patch' => array(NULL), 'epoch' => 1409137627);
 	protected $soObjects, $soObjectTypes, $client;
 	protected $options, $soIndicators, $soIndicatorTypes;
 	protected $soapCounter, $intObjects;
@@ -172,6 +185,7 @@ class soDeferredDeviceWrapper {
 		$this->options['dont_cache_indicators'] = 1;
 		$this->options['allow_cache'] = 1;
 		$this->options['auto_delete_mismatch'] = 0;
+		$this->options['serverDomain'] = '.srv.frank.lab';
 		$this->qLogLevel(SODW_ALL & ~(SODW_DEBUG | SODW_SODEBUG));
 	}
 	
@@ -207,22 +221,26 @@ class soDeferredDeviceWrapper {
 		return(TRUE);
 	}
 	
+	public function setServerDomain($domain) {
+		$this->options['serverDomain'] = $domain;
+		return(TRUE);
+	}
+	
 	protected function connectPeer() {			
 		$this->logMsg(SODW_FENTRY, "Called to connect!");
 		$options = array('trace' => 1, 'connection_timeout'=>45, 'cache_wsdl'=>'1');
 		if ($this->options['peer_mode']) {
 			$cDev = $this->core_getDeviceById($this->deviceId);
-			$cPeer = $this->core_getPeerById($cDev->peer);
-			/* Edit these next few lines to fit your environment -- these should be configurable options*/	
-			$newServer = "{$cPeer->name}.sevone.mydomain.lan";
-			if (preg_match("/pm(?P<peer_num>\d+)/", $cPeer->name, $match)) {
+			$cPeer = $this->core_getPeerById($cDev->peer);		
+			$newServer = "{$cPeer->name}{$this->options['serverDomain']}";
+			if (preg_match("/(?P<pm>pm|vpas)(?P<peer_num>\d+)/", $cPeer->name, $match)) {
 				if ($match['peer_num'] % 2) {
-					$otherServer = "pm" . ($match['peer_num'] + 1);
+					$otherServer = $match['pm'] . ($match['peer_num'] + 1);
 				}
 				else {
-					$otherServer = "pm" . ($match['peer_num'] - 1);
+					$otherServer = $match['pm'] . ($match['peer_num'] - 1);
 				}
-				$otherServer .= ".sevone.mydomain.lan";
+				$otherServer .= $this->options['serverDomain'];
 				$servers = array($newServer, $otherServer);
 			}
 			else {
@@ -230,17 +248,33 @@ class soDeferredDeviceWrapper {
 			}
 			$sWSDL = "/soap3/api.wsdl";
 			$sAPI = "/soap3/api.php";
-			$this->logMsg(SODW_INFO, "Connecting to {$newServer} or {$otherServer} (poller for {$this->deviceName})");
+			$serverList = implode(',', $servers);
+			$this->logMsg(SODW_INFO, "Connecting to {$serverList} (poller(s) for {$this->deviceName})");
 			$vclient = $this->soCreateConnection($servers, $options, $sWSDL, $sAPI);
 			if (!$vclient) {
-				$this->logMsg(SODW_ERROR, "Couldn't connect to peer SOAP server at {$soapUrl}, continuing on with initial SevOne server");
-				$vclient = $client;
+				$this->logMsg(SODW_ERROR, "Couldn't connect to peer SOAP server at {$serverList}, continuing on with initial SevOne server");
+				$vclient = $this->client;
 			}
 			$this->client = $vclient;
 		}
 		else {
 			$this->logMsg(SODW_FENTRY, "Peermode is not set, staying connected to primary");
 		}
+	}
+
+	public function getVersion() {
+		return($this->soWrapperVersion);
+	}
+	
+	public function getCompatInfo($version) {
+		if ($version['major'] == $this->soWrapperVersion['major'] && $version['minor'] == 0 && $version['revision'] <= $this->soWrapperVersion['revision']) {
+			return(TRUE);
+		}
+		return(FALSE);
+	}
+	
+	public function getDeviceIdByName($deviceName) {
+	
 	}
 	
 	public function setDeviceName($deviceName, $findId = TRUE) {
@@ -394,26 +428,93 @@ class soDeferredDeviceWrapper {
 		return(TRUE);
 	}
 	
-	public function pushData() {
+	public function pushDataAll() {
 		$this->logMsg(SODW_FENTRY, "Called");
-		if (!count($this->intObjects[$this->deviceId])) {
+		if (!(is_array($this->intObjects) && count($this->intObjects))) return(FALSE);
+		foreach ($this->intObjects as $devid => $devdata) {
+			$this->pushData($devid);
+		}
+		return(TRUE);
+	}
+	
+	public function pushData($devid = FALSE) {
+		if ($devid === FALSE) $devid = $this->deviceId;
+		$this->logMsg(SODW_FENTRY, "Called");
+		if (!count($this->intObjects[$devid])) {
 			$this->logMsg(SODW_ERROR, "No objects to insert");
 			return(FALSE);
 		}
-		foreach($this->intObjects[$this->deviceId] as $okey => $oval) {
+		foreach($this->intObjects[$devid] as $okey => $oval) {
 			$this->pushObjData($okey, $oval);
 		}		
 	}
 	
 	public function getInternalData($devid = NULL) {
 		$this->logMsg(SODW_FENTRY, "Called with {$devid}");
-		if (!$devid) $devid = $this->deviceId;
+		if ($devid === FALSE) {
+			return($this->intObjects);
+		}
+		if ($devid === NULL) $devid = $this->deviceId;
 		if (!isset($this->intObjects[$devid]) || !count($this->intObjects[$devid])) {
 			$this->logMsg(SODW_WARN, "Asked to return internal object/indicator data for {$devid} but there are none");
 			return(FALSE);
 		}
 		return($this->intObjects[$this->deviceId]);
 	}
+	
+	protected function verifyImportData($dataArray, $devid) {
+		$this->logMsg(SODW_FENTRY, "Called with {$devid}");
+		if (!is_array($dataArray)) {
+			$this->logMsg(SODW_ERROR, "We were not passed an array");
+			$this->logMsg(SODW_DEBUG, print_r($dataArray, TRUE));
+			return(FALSE);
+		}
+		if (!$devid) {
+			foreach ($dataArray as $did => $ddat) {
+				$r = $this->verifyImportDeviceData($ddat, $did);
+			}
+			if ($r == count($dataArray)) return(TRUE);
+			return(FALSE);
+		}
+	}
+	
+	protected function verifyImportDeviceData($dataArray, $devid) {
+		$this->logMsg(SODW_FENTRY, "Called with {$devid}");
+		if (!$devid) {
+			$this->logMsg(SODW_FENTRY, "Invalid device id: {$devid} .. This function requires a valid device id");
+			return(0);
+		}
+		if (!is_array($dataArray)) {
+			$this->logMsg(SODW_FENTRY, "We were not passed an array to set for a device");
+			return(0);
+		}
+		foreach ($dataArray as $key => $val) {
+		
+		}
+	}
+	
+	
+	public function importData($dataArray, $devid = NULL) {
+		$this->logMsg(SODW_FENTRY," Called with {$devid}");
+		$this->verifyData($dataArray, $devid);
+		if (!$devid) {
+			$this->intObjects = $dataArray;
+		}
+		else {
+			$this->intObjects[$devid] = $dataArray;
+		}
+	}
+	
+	public function flushInternalData() {
+		$this->intObjects = array();
+	}
+	
+	public function setIntObjects($intObjects) {
+		$this->logMsg(SODW_FENTRY, "Called");
+		$this->logMsg(SODW_DEBUG, print_r($intObjects, TRUE));
+		$this->intObjects = $intObjects;
+	}
+	
 	
 	public function deleteInternalObject($objectName, $devid = FALSE) {
 		if (!$devid) $devid = $this->deviceId;
@@ -476,7 +577,7 @@ class soDeferredDeviceWrapper {
 		$this->logMsg(SODW_INFO, "insertDataRows returned {$res}");
 		unset($data); unset($object); unset($objectIndicators); unset($oval); unset($newInds);
 	}
-
+	
 	public function preVerify($deviceId = FALSE) {
 		$this->logMsg(SODW_FENTRY, "Called");
 		$this->logMsg(SODW_DEBUG, print_r($this->intObjects, TRUE));
@@ -850,7 +951,7 @@ class soDeferredDeviceWrapper {
 	}
 	
 	public function __call($method, $args) {
-		if (strncmp("so_", $method, 3) && strncmp("core_", $method, 5)) {
+		if (strncmp("so_", $method, 3) && strncmp("core_", $method, 5) && strncmp("gr_", $method, 3)) {
 			/* Check to see if we should rewrite this function and call something via SOAP, if not core_ or so_ .. invalid call */
 			$this->logMsg(SODW_ERROR, "Undefined function {$method}");
 			return(NULL);
@@ -862,18 +963,18 @@ class soDeferredDeviceWrapper {
 		}
 		$trace = debug_backtrace();
 		$fCall = $trace[2]['function'];
+		$sOrig = array("so_", "gr_");
+		$sNew = array("plugin_deferred_", "group_");
+		$newmethod = str_replace($sOrig, $sNew, $method);
 		do {
 			/* Loop in case there's an exception.. retry in case there is */
 			$cException = 0;
 			try {
-				$newmethod = str_replace("so_", "plugin_deferred_", $method);
 				$this->logMsg(SODW_SOAP, "{$newmethod}() :: {$fCall}()");
 				$startTime = microtime(TRUE);
 				$a = call_user_func_array(array($this->client, $newmethod), $args);
 				$endTime = microtime(TRUE);
 				$totalTime = $endTime - $startTime;
-				if (!isset($this->soapCounter[$newmethod])) $this->soapCounter[$newmethod]['count'] = 0;
-				$this->soapCounter[$newmethod]['count']++;
 				/* Store the time taken to execute this call */
 				$this->soapCounter[$newmethod][] = $totalTime;
 			} catch (Exception $e) {
@@ -881,6 +982,7 @@ class soDeferredDeviceWrapper {
 				$cException = 1;
 			}
 		} while ($cException && $this->sevException());
+
 		$this->logMsg(SODW_SODEBUG, "Return from SevOne for {$fCall}: " . print_r($a, TRUE));
 		$this->logMsg(SODW_SODEBUG, "Function {$newmethod} was called with: " . print_r($args, TRUE));
 		if (isset($a)) return($a);
